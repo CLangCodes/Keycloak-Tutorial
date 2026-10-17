@@ -3,6 +3,13 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+# skills and agent files
+.agents/
+.claude/
+
+# docker files
+docker-compose/
+
 # dotenv files
 .env
 
