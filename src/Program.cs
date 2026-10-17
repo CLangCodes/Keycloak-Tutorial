@@ -1,10 +1,37 @@
+using System.Security.Claims;
+using Keycloak.Extensions;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using Scalar.AspNetCore;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApiWithAuth(builder.Configuration);
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
+        options.MetadataAddress = builder.Configuration["Authentication:MetadataAddress"]!;
+        options.Audience = builder.Configuration["Authentication:Audience"];
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidIssuer = builder.Configuration["Authentication:ValidIssuer"]
+        };
+    });
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("Authenticated", policy =>
+    {
+        policy.RequireAuthenticatedUser();
+    });
+});
 
 var app = builder.Build();
 
@@ -14,9 +41,24 @@ app.MapDefaultEndpoints();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+    app.MapScalarApiReference(options =>
+    {
+        options
+            .AddPreferredSecuritySchemes("Keycloak")
+            .AddImplicitFlow("Keycloak", flow =>
+            {
+                flow.ClientId = builder.Configuration["Keycloak:ClientId"];
+                flow.SelectedScopes = ["openid", "profile"];
+                // Must match a "Valid redirect URI" on the Keycloak client.
+                flow.RedirectUri = builder.Configuration["Keycloak:RedirectUri"];
+            });
+    });
 }
 
 app.UseHttpsRedirection();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 var summaries = new[]
 {
@@ -36,6 +78,12 @@ app.MapGet("/weatherforecast", () =>
     return forecast;
 })
 .WithName("GetWeatherForecast");
+
+app.MapGet("users/me", (ClaimsPrincipal claimsPrincipal) =>
+{
+    return claimsPrincipal.Claims.ToDictionary(c => c.Type, c => c.Value);
+    
+}).RequireAuthorization();
 
 app.Run();
 
